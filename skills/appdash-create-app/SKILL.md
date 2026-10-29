@@ -1,30 +1,33 @@
 ---
 name: appdash-create-app
-description: Build a local app and its declarative AppDash Gateway configuration for user review and registration.
+description: Build a local service with its own UI or a finite automation script and its declarative AppDash configuration.
 ---
 
 # Build an AppDash-compatible local app
 
-AppDash manages registration, process start/stop, schedules, connections, credentials, logs and result downloads. The app owns its domain logic, UI, AI calls, memory and tools. Build a local app; do not build a controller for AppDash or require a general orchestration/MCP layer. AppDash does not generate app code internally.
+Deliver real source, executable entry points, appdash-gateway-config.json, setup/start/stop instructions and checks actually performed. AppDash manages local processes, registration, allowed connections/tokens, logs and results. The app owns its UI, business logic, AI calls, tools and memory. Do not build a controller or mandatory orchestration layer for AppDash. Do not register or run the app automatically unless the human explicitly asks.
 
-## Deliverables
+## Exactly two categories
 
-Deliver working source, dependencies and installation instructions, real start/stop entry points, `appdash-gateway-config.json`, and a report of checks actually performed. Never claim installation, execution or registration that you did not perform. Keep credentials and private data out of source, configuration JSON and logs. A user reviews and registers the app in AppDash after preparing it on their PC.
+- service: an app with its own UI. Set gateway.openUrl and start the real server with gateway.start. AppDash opens the actual UI in a new tab, reuses an existing owned instance, manages process start/stop, readiness and logs. Business schedules belong INSIDE the service, not in AppDash. Implement them in that service only if requested; persist them, prevent duplicate occurrences and document that the service/PC must be running.
+- automation: a finite script without its own UI. Leave openUrl and healthUrl empty. Clicking the card opens an execution panel. AppDash handles manual runs, inputs, schedules, stop, logs and downloadable results. Exit 0 on success and nonzero on failure. Do not add an unnecessary internal scheduler.
 
-## Configuration contract
+scheduled is a legacy import alias, not a third category. Do not generate uiStart/uiStop in new configurations. A service uses start/stop directly.
 
-Use exactly this filename: `appdash-gateway-config.json`.
+## Configuration
+
+The exact filename is appdash-gateway-config.json.
 
 ```json
 {
-  "name": "My local app",
-  "description": "What it does",
+  "name": "My script",
+  "description": "What the task does",
   "type": "automation",
   "group": "Personal",
   "gateway": {
     "adapter": "process",
-    "workingDirectory": "C:\\Apps\\my-app",
-    "start": { "executable": "node", "args": ["main.mjs"] },
+    "workingDirectory": "C:\\Apps\\my-script",
+    "start": { "executable": "node", "args": ["run.mjs"] },
     "stop": { "executable": "", "args": [] },
     "healthUrl": "",
     "openUrl": "",
@@ -34,27 +37,16 @@ Use exactly this filename: `appdash-gateway-config.json`.
 }
 ```
 
-`name` is the single app name. `workingDirectory` must be the user's real absolute directory; replace example paths. Separate executable and argument array. No implicit shell expansion, pipes, redirection or interpolation: explicitly select `powershell.exe` or `cmd.exe` and pass host arguments when required. All listed entry points must exist. URLs must be HTTP(S) without embedded credentials.
+For a UI app use type service, start args ["server.mjs"], a real loopback openUrl and healthUrl (for example http://127.0.0.1:4180/ and /api/ready). AppDash uses port 4175; use a separate app port. workingDirectory must be the user's real absolute folder, not an unedited example. Separate executable from argument array. No implicit shell expansion; use a shell host explicitly for BAT/PowerShell commands. stop is optional; without it AppDash terminates only its owned process tree. Bind app servers to loopback unless explicitly requested otherwise. All listed files and entry points must exist.
 
-- `automation`: finite task; exit 0 for success, nonzero for failure. Stop command is optional.
-- `service`: persistent web app or local AI agent service. Supply an actual health URL and a UI open URL. AppDash reuses an active instance and opens its UI in a new tab. Closing the tab does not stop it. With no stop entry point, AppDash terminates the process tree it started.
-- `scheduled`: finite task with schedules managed by AppDash. Do not add an unnecessary internal scheduler. AppDash and the PC must be running. Times use Asia/Seoul.
-
-Default task timeout is 300 seconds; service readiness is 20 seconds. AppDash is a local process manager, not a security sandbox. Bind app servers to loopback unless the user explicitly requires otherwise.
+name is the single app name. Do not embed credentials, secrets or installation-specific token/connection IDs in source or distributable configuration. Do not claim importing a file approves execution.
 
 ## Runtime environment
 
-- `APPDASH_APP_ID`, `APPDASH_RUN_ID`: stable app ID and unique execution ID.
-- `APPDASH_INPUT_JSON`: execution input object; validate before use.
-- `APPDASH_OUTPUT_DIR`: dedicated result directory. Write downloadable outputs here. Avoid symlinks and external result paths.
-- `APPDASH_CONNECTIONS_JSON`: authorized connection ID/name/type/URL/authEnvName metadata, never token values.
-- `APPDASH_URL`: local AppDash base URL.
-- `APPDASH_TOKEN_ACCESS_KEY`: transient execution credential, never log or persist it.
+APPDASH_APP_ID and APPDASH_RUN_ID identify the app and execution. APPDASH_INPUT_JSON is an input object and must be validated. APPDASH_OUTPUT_DIR is a dedicated result directory; write downloadable results there without links or path escape. APPDASH_CONNECTIONS_JSON contains permitted connection metadata, not secrets. APPDASH_URL is the local base URL. APPDASH_TOKEN_ACCESS_KEY is a transient execution credential: never log or persist it.
 
-Apps may retain their own `.env` or authentication mechanism. Central AppDash tokens are optional and explicitly assigned by the user after registration; do not embed installation-specific token or connection IDs in distributable JSON. Authorized tokens are injected under their registered variable names. Never overwrite system or APPDASH control variables.
-
-For fresh tokens, use the provided `appdash-sdk.mjs`: `getToken('GITHUB_TOKEN')` prefers the app's environment; `getToken('GITHUB_TOKEN', { fresh: true })` calls `POST /api/runtime/tokens/GITHUB_TOKEN` with `Authorization: Bearer <APPDASH_TOKEN_ACCESS_KEY>`. Only assigned, unexpired tokens on an active execution are available. Never use the UI management session token. Replacement is reflected on fresh lookup or the next process start; existing environment values cannot be remotely erased. Do not log secrets, input containing secrets, authorization headers or raw upstream errors containing credentials.
+Apps may use their own .env/authentication. Explicitly assigned central tokens are injected under registered names. Never overwrite system or APPDASH control variables. If fresh lookup is required, sdk/appdash-sdk.mjs getToken(name) prefers the environment; getToken(name,{fresh:true}) calls POST /api/runtime/tokens/{name} with Authorization: Bearer APPDASH_TOKEN_ACCESS_KEY. Only assigned, current, unexpired tokens on an active run may be retrieved. Do not use the UI management session. Deleting/rotating a token cannot erase an already injected environment value.
 
 ## Verify and hand over
 
-Test a real task or service start, readiness, successful/failing exit, output generation and stop when applicable. Explain untested steps. Have the user download/review the config, prepare their local folder, import the JSON in **앱 만들기 · 연결하기**, review commands and permissions, choose connections/tokens, and explicitly register. Importing is never execution approval by itself. App UI belongs to the app and opens in a new tab; AppDash need not generate domain-specific forms.
+Test real start, service readiness/stop or script success/failure/timeout, input validation, persistence, result generation and scheduling when implemented. Explain anything not tested. Keep test data separate. The human prepares the folder, imports the JSON under 앱 만들기 · 연결하기, reviews commands/permissions, chooses any tokens/connections and explicitly registers the app. AppDash is a local process manager, not a sandbox.

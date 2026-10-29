@@ -11,10 +11,13 @@ export function preflight(value) {
  const add=(name,ok,message)=>checks.push({name,ok,message});
  const cwd=app.gateway.workingDirectory;
  add('작업 폴더',fs.existsSync(cwd)&&fs.statSync(cwd).isDirectory(),cwd);
- const executable=app.gateway.start.executable;
+ function checkExecutable(name,executable){
  const candidates=path.isAbsolute(executable)?[executable]:executable.includes('/')||executable.includes('\\')?[path.resolve(cwd,executable)]: (process.env.PATH||'').split(path.delimiter).flatMap(dir=>[path.join(dir,executable),...(process.platform==='win32'?(process.env.PATHEXT||'.EXE;.CMD;.BAT').split(';').map(ext=>path.join(dir,executable+ext)):[])]);
- add('실행 파일',candidates.some(file=>{try{return fs.statSync(file).isFile();}catch{return false;}}),executable);
- if(app.type==='service'){
+ add(name,candidates.some(file=>{try{return fs.statSync(file).isFile();}catch{return false;}}),executable);
+ }
+ checkExecutable('실행 파일',app.gateway.start.executable);
+ if(app.gateway.uiStart?.executable)checkExecutable('앱 화면 실행 파일',app.gateway.uiStart.executable);
+ if(app.type==='service'||app.gateway.uiStart?.executable){
   add('준비 확인 URL',!!app.gateway.healthUrl,'서비스의 실제 준비 여부를 확인할 URL을 권장합니다.');
   add('앱 접속 URL',!!app.gateway.openUrl,'서비스 화면을 새 탭에서 열 URL입니다.');
  }

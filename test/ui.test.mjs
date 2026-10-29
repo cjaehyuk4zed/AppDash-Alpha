@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const fixtureApp={id:'dummy-app',name:'DUMMY APP',type:'scheduled',group:'개인 업무',favorite:true,archived:false,blockers:[],connectionIds:[],tokenIds:[],gateway:{},inputDefaults:{}};
+const fixtureApp={id:'dummy-app',name:'DUMMY APP',type:'automation',group:'개인 업무',favorite:true,archived:false,blockers:[],connectionIds:[],tokenIds:[],gateway:{},inputDefaults:{}};
 
 function ui() {
  const source=fs.readFileSync('public/app.js','utf8');
@@ -116,4 +116,79 @@ test('server disconnection is visible and clears on successful reconnection',asy
   await assert.rejects(refresh(false));render();assert.ok(document.querySelector('#app').innerHTML.includes('서버 연결 끊김'));
   api=async()=>saved;await refresh();assert.ok(!document.querySelector('#app').innerHTML.includes('서버 연결 끊김'));
  })()`,context);
+});
+
+test('card labels sit below schedule information and above the action footer',()=>{
+ const {context}=ui();vm.runInContext(`
+  state.apps=[{...fixtureApp,type:'service',gateway:{openUrl:'http://127.0.0.1:4180/'}}];
+  state.uiStates={'dummy-app':{configured:true,canStart:true,status:'running',managed:true}};
+  const html=card(state.apps[0]),footer=html.slice(html.indexOf('card-foot'));
+  assert.ok(html.indexOf('card-meta')<html.indexOf('card-labels'));
+  assert.ok(html.indexOf('card-labels')<html.indexOf('card-foot'));
+  assert.ok(!footer.includes('class="badge"'));assert.ok(footer.includes('data-stop-ui'));
+  assert.ok(!footer.includes('data-quick-run'));assert.ok(!footer.includes('data-schedule'));
+  assert.ok(html.includes('실행 중'));assert.ok(html.includes('개인 업무'));
+ `,context);
+});
+test('clicking a running app opens its real UI without a choice dialog or run page',()=>{
+ const {context}=ui();vm.runInContext(`
+  state.apps=[{...fixtureApp,type:'service',gateway:{openUrl:'http://127.0.0.1:4180/'}}];
+  state.uiStates={'dummy-app':{configured:true,status:'running'}};
+  const opened=[];window={open:url=>opened.push(url)};modal=()=>assert.fail('unexpected dialog');
+  useApp('dummy-app');assert.deepEqual(opened,['http://127.0.0.1:4180/']);
+ `,context);
+});
+test('cold app opening waits for UI startup and closes the empty tab on failure',async()=>{
+ const {context}=ui();await vm.runInContext(`(async()=>{
+  state.apps=[{...fixtureApp,type:'service',gateway:{openUrl:'http://127.0.0.1:4180/'}}];
+  let requested='',redirected='';const popup={document:{body:{}},location:{replace:url=>redirected=url},close(){this.closed=true}};
+  window={open:()=>popup};refresh=async()=>{};api=async url=>{requested=url;return {url:'http://127.0.0.1:4180/'};};
+  useApp('dummy-app');await Promise.resolve();await Promise.resolve();
+  assert.equal(requested,'apps/dummy-app/open-ui');assert.equal(redirected,'http://127.0.0.1:4180/');assert.equal(popup.opener,null);
+  api=async()=>{throw new Error('startup failed');};toast=()=>{};useApp('dummy-app');await Promise.resolve();await Promise.resolve();assert.equal(popup.closed,true);
+ })()`,context);
+});
+test('quick task execution stays on the dashboard and exposes an explicit history link',async()=>{
+ const {context}=ui();await vm.runInContext(`(async()=>{
+  state.apps=[fixtureApp];const notes=[];let requested='';
+  window={open:()=>assert.fail('must not open a run tab')};toast=(message,id)=>notes.push([message,id]);
+  api=async url=>{requested=url;return {id:'task-run',status:'running'};};refresh=async()=>{};
+  await launchTask('dummy-app');assert.equal(requested,'apps/dummy-app/run');assert.equal(page,'home');assert.equal(notes.at(-1)[1],'task-run');
+  state.runs=[{id:'task-run',status:'succeeded'}];observeTaskResults();assert.ok(notes.at(-1)[0].includes('완료'));
+ })()`,context);
+});
+
+test('rerunning a UI history entry starts only its UI and never the finite task',async()=>{
+ const {context,dialog}=ui();await vm.runInContext(`(async()=>{
+  state.apps=[fixtureApp];runDetails={appId:'dummy-app',purpose:'ui'};confirmRerun();
+  assert.ok(document.querySelector('#dialog').innerHTML.includes('data-purpose="ui"'));assert.ok(!document.querySelector('#dialog').innerHTML.includes('name="input"'));
+  let called='',rendered='';api=async url=>{called=url;return {runId:'ui-run'};};document.querySelector('#dialog').close=()=>{};historyReplace=()=>{};refresh=async()=>{};renderRun=async()=>rendered=runId;
+  await rerunFromForm({dataset:{purpose:'ui',appId:'dummy-app'}});assert.equal(called,'apps/dummy-app/start-ui');assert.equal(rendered,'ui-run');
+ })()`,context);
+});
+
+test('script-only cards open a run confirmation instead of an error or browser tab',()=>{
+ const {context,dialog}=ui();vm.runInContext(`
+  state.apps=[{...fixtureApp,askInput:false}];window={open:()=>assert.fail('no app UI URL')};
+  api=()=>assert.fail('card click must wait for confirmation');useApp('dummy-app');
+  const html=document.querySelector('#dialog').innerHTML;
+  assert.ok(html.includes('스크립트 실행 · DUMMY APP'));assert.ok(html.includes('id="quickRunForm"'));
+  assert.ok(html.includes('type="hidden" name="input" value="{}"'));assert.ok(!html.includes('접속 URL을 설정'));
+ `,context);
+});
+test('script-only card confirmation shows inputs only when the app requests them',()=>{
+ const {context,dialog}=ui();vm.runInContext(`
+  state.apps=[{...fixtureApp,askInput:true,inputDefaults:{report:'오늘'}}];useApp('dummy-app');
+  const html=document.querySelector('#dialog').innerHTML;assert.ok(html.includes('실행 입력 · JSON 객체'));assert.ok(html.includes('오늘'));assert.ok(html.includes('id="quickRunForm"'));
+ `,context);
+});
+
+test('only two category labels exist and services have no AppDash scheduling controls',()=>{
+ const {context}=ui();vm.runInContext(`
+  assert.deepEqual(Object.keys(appTypes),['service','automation']);
+  const app={...fixtureApp,type:'service',gateway:{openUrl:'http://127.0.0.1:4180/'}};
+  const html=appForm(app);assert.equal((html.match(/role="tabpanel"/g)||[]).length,3);assert.ok(!html.includes('data-management-tab="schedules"'));
+  const rendered=card(app);assert.ok(!rendered.includes('data-schedule='));assert.ok(!rendered.includes('data-quick-run='));
+  const script=card(fixtureApp);assert.ok(script.includes('data-schedule='));assert.ok(script.includes('자동화 스크립트'));
+ `,context);
 });

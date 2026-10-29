@@ -1,3 +1,4 @@
+import { classifyApp } from './classification.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,3 +21,16 @@ export function put(kind, body) { const record = { ...body, id: body.id || rando
 export const remove = (kind,id) => db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);
 export const settings = () => ({ ...defaults, ...get('settings','workspace') });
 export function notify(message, runId, level='error') { put('notifications',{ message,runId,level,read:false,createdAt:new Date().toISOString() }); for (const n of list('notifications').slice(300)) remove('notifications',n.id); }
+
+function migrateClassifications(){
+ const apps=list('apps');db.exec('BEGIN');
+ try{
+  for(const app of apps){
+   const current=classifyApp(app);
+   if(JSON.stringify(current)!==JSON.stringify(app)){put('versions',{appId:app.id,config:app,createdAt:new Date().toISOString(),note:'두 유형으로 정리하기 전 설정'});put('apps',current);}
+   if(current.type==='service')for(const schedule of list('schedules').filter(s=>s.appId===app.id&&s.enabled))put('schedules',{...schedule,enabled:false});
+  }
+  db.exec('COMMIT');
+ }catch(error){db.exec('ROLLBACK');throw error;}
+}
+migrateClassifications();

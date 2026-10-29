@@ -26,8 +26,9 @@ test('audit regressions with isolated workspace',async t=>{
  });
  await t.test('malformed configuration and NUL process parameters return validation errors',async()=>{
   const invalid=config();delete invalid.gateway.workingDirectory;
-  for(const [route,value] of [['import',invalid],['connections',null],['tokens',null],['settings',null],['import',{...config(),gateway:{...config().gateway,start:{executable:process.execPath,args:['bad\0argument']}}}]])assert.equal((await request(route,route==='settings'?'PUT':'POST',value)).status,400,route);
+  for(const [route,value] of [['import',invalid],['connections',null],['tokens',null],['settings',null],['settings',JSON.parse('{"__proto__":{}}')],['import',{...config(),gateway:{...config().gateway,start:{executable:process.execPath,args:['bad\0argument']}}}]])assert.equal((await request(route,route==='settings'?'PUT':'POST',value)).status,400,route);
  });
+ await t.test('merged defaults and runtime input stay within the execution limit',async()=>{const app=await good('apps','POST',{...config(),inputDefaults:{defaults:'a'.repeat(14000)}});const response=await request('apps/'+app.id+'/run','POST',{runtime:'b'.repeat(14000)});assert.equal(response.status,400);assert.match(response.body.error,/16000/);assert.equal((await good('state')).lastRuns[app.id].status,'blocked');});
  await t.test('failed output directory creation ends the run and releases app lock',async()=>{
   const app=await good('apps','POST',config()),root=path.join(dir,'results');fs.writeFileSync(root,'blocked directory');
   try{assert.equal((await request(`apps/${app.id}/run`,'POST',{})).status,500);const run=(await good('state')).lastRuns[app.id];assert.equal(run.status,'failed');assert.ok(run.endedAt);}finally{fs.unlinkSync(root);}
@@ -51,7 +52,7 @@ test('audit regressions with isolated workspace',async t=>{
   if(process.platform!=='win32')return;
   const value={name:'race',envName:'AUDIT_RACE_TOKEN',value:'audit-secret'};
   const results=await Promise.all([request('tokens','POST',value),request('tokens','POST',value)]);assert.deepEqual(results.map(r=>r.status).sort(),[200,400].sort());
-  const token=results.find(r=>r.status<300).body;
+  const token=results.find(r=>r.status<300).body;assert.equal((await request('tokens/'+token.id,'PUT',{...value,value:0})).status,400);assert.equal((await request('tokens','POST',{name:' ',envName:'EMPTY_NAME_TOKEN',value:'not-saved'})).status,400);
   const pending=request('tokens/'+token.id,'PUT',{...value,value:'changed'});await delay(80);await good('tokens/'+token.id,'DELETE');assert.equal((await pending).status,400);assert.ok(!(await good('state')).tokens.some(t=>t.id===token.id));
  });
  await t.test('result root links cannot redirect new process output',async()=>{

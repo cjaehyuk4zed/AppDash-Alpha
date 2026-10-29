@@ -6,8 +6,16 @@
   "gateway": {
     "adapter": "process",
     "workingDirectory": "C:\\Apps\\my-app",
-    "start": { "executable": "node", "args": ["main.mjs"] },
-    "stop": { "executable": "", "args": [] },
+    "start": {
+      "executable": "node",
+      "args": [
+        "main.mjs"
+      ]
+    },
+    "stop": {
+      "executable": "",
+      "args": []
+    },
     "healthUrl": "",
     "openUrl": "",
     "timeoutSeconds": 300,
