@@ -1,0 +1,16 @@
+{
+  "name": "나의 앱",
+  "description": "이 앱이 하는 일",
+  "type": "automation",
+  "group": "개인 업무",
+  "gateway": {
+    "adapter": "process",
+    "workingDirectory": "C:\\Apps\\my-app",
+    "start": { "executable": "node", "args": ["main.mjs"] },
+    "stop": { "executable": "", "args": [] },
+    "healthUrl": "",
+    "openUrl": "",
+    "timeoutSeconds": 300,
+    "readinessSeconds": 20
+  }
+}

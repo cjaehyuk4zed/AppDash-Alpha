@@ -1,0 +1,11 @@
+.runtime/
+.env
+node_modules/
+*.log
+
+artifacts/
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
