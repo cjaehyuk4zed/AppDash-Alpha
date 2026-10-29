@@ -192,3 +192,11 @@ test('only two category labels exist and services have no AppDash scheduling con
   const script=card(fixtureApp);assert.ok(script.includes('data-schedule='));assert.ok(script.includes('자동화 스크립트'));
  `,context);
 });
+
+test('service editing preserves hidden timeout metadata instead of forcing a restart',()=>{
+ const {context}=ui();vm.runInContext(`
+  formData=()=>({name:'Service',type:'service',version:'1',workingDirectory:'C:/Apps',executable:'node',args:'["server.mjs"]',stopExecutable:'',stopArgs:'[]',healthUrl:'http://127.0.0.1:4180/api/ready',openUrl:'http://127.0.0.1:4180/',readinessSeconds:'20',inputDefaults:'{}',retentionDays:'30',missedPolicy:'skip'});
+  const result=readApp({querySelector:selector=>({value:selector.includes('timeoutSeconds')?'30':'20'})});
+  assert.equal(result.gateway.timeoutSeconds,30);assert.equal(result.gateway.readinessSeconds,20);
+ `,context);
+});

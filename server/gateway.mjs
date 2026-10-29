@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { logFilter } from './log-filter.mjs';
+import { logFilter, boundedLog } from './log-filter.mjs';
 import { dataDir, baseUrl } from './config.mjs';
 import { list, get, put, notify, settings } from './store.mjs';
 import { check } from './validation.mjs';
@@ -32,7 +32,7 @@ export class Gateway {
    const child=spawn(app.gateway.start.executable,app.gateway.start.args,{cwd:app.gateway.workingDirectory,env,shell:false,windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
    let done;const completed=new Promise(r=>done=r);const a={run,child,key,secrets,tokenIds:grants.map(t=>t.id),gatewaySnapshot:storedApp.gateway,stopCommand:app.gateway.stop,workingDirectory:app.gateway.workingDirectory,completed,ended:false,timers:[],stopReason:null};this.active.set(run.id,a);
    const redact=s=>{for(const secret of secrets.filter(Boolean).sort((x,y)=>y.length-x.length))s=s.split(secret).join('[REDACTED]');return s;};
-   const append=s=>{if(!s)return;run.log=(run.log+redact(s)).slice(-128*1024);put('runs',run);};
+   const append=s=>{if(!s)return;run.log=boundedLog(run.log+redact(s));put('runs',run);};
    const flushers=[];
    for(const stream of [child.stdout,child.stderr]){const filter=logFilter(secrets,append);stream.setEncoding('utf8');stream.on('data',s=>filter.write(s));flushers.push(()=>filter.end());}
    const finish=(code,error)=>{if(a.ended)return;a.ended=true;a.key=null;for(const t of a.timers)clearTimeout(t);flushers.forEach(f=>f());run.status=a.failure?'failed':a.stopReason?'stopped':error||code!==0?'failed':'succeeded';run.reason=a.stopReason||error|| (code!==0?`종료 코드 ${code}`:'');run.exitCode=code;run.endedAt=new Date().toISOString();put('runs',run);this.active.delete(run.id);if(run.status==='failed')notify(`${app.name}: ${run.reason}`,run.id);else if(settings().successNotifications&&run.status==='succeeded')notify(`${app.name} 실행 완료`,run.id,'success');done();};

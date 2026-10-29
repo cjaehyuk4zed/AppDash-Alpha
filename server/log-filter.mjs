@@ -17,3 +17,9 @@ export function logFilter(secrets,append) {
  }
  return {write(value){pending+=value;flush();},end(){flush(true);}};
 }
+
+export function boundedLog(text,maxBytes=128*1024){
+ const bytes=Buffer.from(text,'utf8');if(bytes.length<=maxBytes)return text;
+ let start=bytes.length-maxBytes;while(start<bytes.length&&(bytes[start]&0xc0)===0x80)start++;
+ return bytes.subarray(start).toString('utf8');
+}
