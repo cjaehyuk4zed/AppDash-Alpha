@@ -3,6 +3,9 @@ $installRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $listenPort = if ($env:APPDASH_PORT) { $env:APPDASH_PORT } else { '4175' }
 $baseUrl = "http://127.0.0.1:$listenPort"
 try {
+    $validatedPort = 0
+    if (-not [int]::TryParse($listenPort, [ref]$validatedPort) -or $validatedPort -lt 1 -or $validatedPort -gt 65535) { throw 'APPDASH_PORT must be an integer between 1 and 65535.' }
+    $baseUrl = "http://127.0.0.1:$validatedPort"
     $ready = Invoke-RestMethod "$baseUrl/api/ready" -TimeoutSec 3
     if ($ready.product -ne 'AppDash' -or $ready.root -ne $installRoot) { throw 'This port does not belong to this AppDash installation.' }
     $state = Invoke-RestMethod "$baseUrl/api/state" -TimeoutSec 3

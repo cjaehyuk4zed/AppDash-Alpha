@@ -8,6 +8,9 @@ function Get-Ready {
     try { return Invoke-RestMethod "$baseUrl/api/ready" -TimeoutSec 2 } catch { return $null }
 }
 try {
+    $validatedPort = 0
+    if (-not [int]::TryParse($listenPort, [ref]$validatedPort) -or $validatedPort -lt 1 -or $validatedPort -gt 65535) { throw 'APPDASH_PORT must be an integer between 1 and 65535.' }
+    $baseUrl = "http://127.0.0.1:$validatedPort"
     $ready = Get-Ready
     for ($wait=0; $ready -and -not $ready.ready -and $wait -lt 80; $wait++) {
         Start-Sleep -Milliseconds 250

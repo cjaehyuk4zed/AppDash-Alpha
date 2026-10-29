@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dataDir } from './config.mjs';
 import { appConfig } from './validation.mjs';
-import { get, put, list } from './store.mjs';
+import { get, put, list, settings } from './store.mjs';
 import { blockers, tokenUsable } from './vault.mjs';
 
 export function preflight(value) {
@@ -42,7 +42,7 @@ export function storageUsage() {
  for(const run of list('runs')){
   const dir=path.join(root,run.id);
   if(!fs.existsSync(dir)||fs.lstatSync(dir).isSymbolicLink())continue;
-  const days=get('apps',run.appId)?.retentionDays||30;
+  const days=get('apps',run.appId)?.retentionDays??settings().retentionDays;
   const expires=run.endedAt?new Date(run.endedAt).getTime()+days*86400000:Infinity;
   const soon=expires<=Date.now()+7*86400000;
   function walk(folder){for(const entry of fs.readdirSync(folder,{withFileTypes:true})){const file=path.join(folder,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory())walk(file);else if(entry.isFile()){const size=fs.statSync(file).size;resultBytes+=size;fileCount++;if(soon)expiringBytes+=size;}}}

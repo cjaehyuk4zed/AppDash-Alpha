@@ -99,3 +99,21 @@ test('rerun requires confirmation, retains the previous input and warns for lega
  assert.ok(dialog.innerHTML.includes('확인 후 재실행'));assert.ok(dialog.innerHTML.includes('&quot;previous&quot;: 1'));assert.ok(!dialog.innerHTML.includes('이전 실행 입력이 저장되지 않아'));
  vm.runInContext(`runDetails={appId:fixtureApp.id};confirmRerun();`,context);assert.ok(dialog.innerHTML.includes('이전 실행 입력이 저장되지 않아'));
 });
+
+test('invalid fields reveal the management tab and collapsed advanced options',()=>{
+ const {context}=ui();vm.runInContext(`
+  let selected;selectManagementTab=key=>selected=key;
+  const details={open:false,parentElement:null};
+  const panel={id:'manage-panel-execution',hidden:true};
+  revealInvalidField({closest:selector=>selector==='details'?details:panel});
+  assert.equal(selected,'execution');assert.equal(details.open,true);
+ `,context);
+});
+
+test('server disconnection is visible and clears on successful reconnection',async()=>{
+ const {context,app}=ui();await vm.runInContext(`(async()=>{
+  const saved=state;api=async()=>{throw new Error('offline');};
+  await assert.rejects(refresh(false));render();assert.ok(document.querySelector('#app').innerHTML.includes('서버 연결 끊김'));
+  api=async()=>saved;await refresh();assert.ok(!document.querySelector('#app').innerHTML.includes('서버 연결 끊김'));
+ })()`,context);
+});
