@@ -8,12 +8,12 @@ import { list, get, put, notify, settings } from './store.mjs';
 import { check } from './validation.mjs';
 import { allowedTokens, blockers, tokenValue } from './vault.mjs';
 export class Gateway {
- active=new Map(); locks=new Set(); closing=false; uiChecks=new Map(); uiStarts=new Map();
+ active=new Map(); locks=new Set(); closing=false; uiChecks=new Map(); uiStarts=new Map(); desktopStarts=new Map(); desktopStops=new Map(); stoppingApps=new Set();
  async start(appId,input={},source='manual',extra={}) {
-  check(!this.closing,'AppDash 종료 중입니다.');const storedApp=get('apps',appId);check(storedApp,'앱을 찾을 수 없습니다.');const purpose=extra.purpose==='ui'||storedApp.type==='service'?'ui':'task';const g=storedApp.gateway;check(purpose!=='ui'||storedApp.type==='service'||g.uiStart?.executable,'앱 화면 시작 명령이 설정되지 않았습니다.');const app=purpose==='ui'?{...storedApp,type:'service',gateway:{...g,healthUrl:g.healthUrl||g.openUrl,start:g.uiStart?.executable?g.uiStart:g.start,stop:g.uiStop?.executable?g.uiStop:storedApp.type==='service'?g.stop:{executable:'',args:[]}}}:storedApp;const lockKey=appId+':'+purpose;
+  check(!this.closing,'AppDash 종료 중입니다.');const storedApp=get('apps',appId);check(storedApp,'앱을 찾을 수 없습니다.');check(!this.stoppingApps.has(appId),'이 앱은 전체 인스턴스 종료 중입니다.');check(source!=='schedule'||storedApp.type==='automation','자동화 스크립트만 예약 실행할 수 있습니다.');const purpose=storedApp.type==='desktop'?'desktop':extra.purpose==='ui'||storedApp.type==='service'?'ui':'task';const g=storedApp.gateway;check(purpose!=='ui'||storedApp.type==='service'||g.uiStart?.executable,'앱 화면 시작 명령이 설정되지 않았습니다.');const app=purpose==='ui'?{...storedApp,type:'service',gateway:{...g,healthUrl:g.healthUrl||g.openUrl,start:g.uiStart?.executable?g.uiStart:g.start,stop:g.uiStop?.executable?g.uiStop:storedApp.type==='service'?g.stop:{executable:'',args:[]}}}:storedApp;const multiple=app.type==='desktop'&&app.allowMultipleInstances;const lockKey=appId+':'+purpose+(multiple?':'+randomBytes(8).toString('hex'):'');
   const existing=[...this.active.values()].find(a=>a.run.appId===appId&&a.run.purpose===purpose);
-  if(existing&&app.type==='service')return existing.run;
-  if(existing||this.locks.has(lockKey)){
+  if(existing&&(app.type==='service'||app.type==='desktop'&&!multiple))return existing.run;
+  if(existing&&!multiple||this.locks.has(lockKey)){
    if(source==='schedule'){const blocked=put('runs',{appId,appName:app.name,status:'blocked',source,...extra,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),reason:'이 앱은 이미 실행 중입니다. 동시 실행 제한으로 예약을 실행하지 않았습니다.',log:''});notify(app.name+': 동시 실행 제한으로 예약이 차단되었습니다.',blocked.id);}
    check(false,'이 앱은 이미 실행 중입니다.');
   }this.locks.add(lockKey);
@@ -24,12 +24,12 @@ export class Gateway {
    const actual={...app.inputDefaults,...input};check(JSON.stringify(actual).length<=16000,'기본값과 합쳐진 실행 입력은 16000자 이하여야 합니다.');
    const key=randomBytes(32).toString('hex');const secrets=[key];const injected={};const grants=allowedTokens(app).map(id=>get('tokens',id));const connectionConfig=()=>app.connectionIds.map(id=>{const {lastCheck,...c}=get('connections',id)||{};return c;});const connectionSnapshot=JSON.stringify(connectionConfig());
    for(const token of grants){injected[token.envName]=await tokenValue(token.id);secrets.push(injected[token.envName]);}
-   check(!this.closing,'AppDash 종료 중입니다.');check(JSON.stringify(connectionConfig())===connectionSnapshot&&grants.every(t=>{const c=get('tokens',t.id);return c&&c.envName===t.envName&&c.ciphertext===t.ciphertext;}),'준비 중 연결 또는 토큰이 변경되었습니다. 다시 실행하세요.');check(JSON.stringify(get('apps',appId))===JSON.stringify(storedApp)&&!blockers(app).length,'준비 중 앱 설정 또는 권한이 변경되었습니다. 다시 실행하세요.');
+   check(!this.closing,'AppDash 종료 중입니다.');check(!this.stoppingApps.has(appId),'이 앱은 전체 인스턴스 종료 중입니다.');check(JSON.stringify(connectionConfig())===connectionSnapshot&&grants.every(t=>{const c=get('tokens',t.id);return c&&c.envName===t.envName&&c.ciphertext===t.ciphertext;}),'준비 중 연결 또는 토큰이 변경되었습니다. 다시 실행하세요.');check(JSON.stringify(get('apps',appId))===JSON.stringify(storedApp)&&!blockers(app).length,'준비 중 앱 설정 또는 권한이 변경되었습니다. 다시 실행하세요.');
    run=put('runs',{appId,appName:app.name,status:'starting',source,purpose,input:actual,startedAt:new Date().toISOString(),log:'',...extra});
    const resultRoot=path.join(dataDir,'results');fs.mkdirSync(resultRoot,{recursive:true});check(!fs.lstatSync(resultRoot).isSymbolicLink(),'결과 폴더에 링크를 사용할 수 없습니다.');const output=path.join(resultRoot,run.id);fs.mkdirSync(output,{recursive:true});
    const connections=app.connectionIds.map(id=>{const c=get('connections',id);return {id:c.id,name:c.name,type:c.type,url:c.url,authEnvName:c.tokenId?get('tokens',c.tokenId)?.envName:c.envRef};});
    const env={...process.env,...injected,APPDASH_APP_ID:appId,APPDASH_RUN_ID:run.id,APPDASH_INPUT_JSON:JSON.stringify(actual),APPDASH_OUTPUT_DIR:output,APPDASH_CONNECTIONS_JSON:JSON.stringify(connections),APPDASH_URL:baseUrl,APPDASH_TOKEN_ACCESS_KEY:key};
-   const child=spawn(app.gateway.start.executable,app.gateway.start.args,{cwd:app.gateway.workingDirectory,env,shell:false,windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
+   const child=spawn(app.gateway.start.executable,app.gateway.start.args,{cwd:app.gateway.workingDirectory,env,shell:false,windowsHide:app.type!=='desktop',detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
    let done;const completed=new Promise(r=>done=r);const a={run,child,key,secrets,tokenIds:grants.map(t=>t.id),gatewaySnapshot:storedApp.gateway,stopCommand:app.gateway.stop,workingDirectory:app.gateway.workingDirectory,completed,ended:false,timers:[],stopReason:null};this.active.set(run.id,a);
    const redact=s=>{for(const secret of secrets.filter(Boolean).sort((x,y)=>y.length-x.length))s=s.split(secret).join('[REDACTED]');return s;};
    const append=s=>{if(!s)return;run.log=boundedLog(run.log+redact(s));put('runs',run);};
@@ -38,14 +38,41 @@ export class Gateway {
    const finish=(code,error)=>{if(a.ended)return;a.ended=true;a.key=null;for(const t of a.timers)clearTimeout(t);flushers.forEach(f=>f());run.status=a.failure?'failed':a.stopReason?'stopped':error||code!==0?'failed':'succeeded';run.reason=a.stopReason||error|| (code!==0?`종료 코드 ${code}`:'');run.exitCode=code;run.endedAt=new Date().toISOString();put('runs',run);this.active.delete(run.id);if(run.status==='failed')notify(`${app.name}: ${run.reason}`,run.id);else if(settings().successNotifications&&run.status==='succeeded')notify(`${app.name} 실행 완료`,run.id,'success');done();};
    child.on('error',e=>finish(null,redact(e.message)));child.on('close',code=>finish(code));
    if(app.rememberInput&&(purpose==='task'||storedApp.type==='service'))put('apps',{...storedApp,inputDefaults:actual});
-   if(app.type!=='service'){a.timers.push(setTimeout(()=>{a.failure=true;a.stopReason='제한 시간 초과';void this.kill(a);},app.gateway.timeoutSeconds*1000));run.status='running';put('runs',run);}
-   else {void this.ready(a,app);}
+   if(app.type==='automation'){a.timers.push(setTimeout(()=>{a.failure=true;a.stopReason='제한 시간 초과';void this.kill(a);},app.gateway.timeoutSeconds*1000));run.status='running';put('runs',run);}
+   else if(app.type==='service'){void this.ready(a,app);}else{run.status='running';put('runs',run);}
    return run;
   } catch(e) {if(run&&!this.active.has(run.id)){put('runs',{...run,status:'failed',reason:e.message,endedAt:new Date().toISOString()});notify(`${app.name}: ${e.message}`,run.id);}if(!run){const failed=put('runs',{appId,appName:app.name,status:'blocked',source,...extra,startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),reason:e.message,log:''});notify(`${app.name}: ${e.message}`,failed.id);}throw e;}
   finally{this.locks.delete(lockKey);}
  }
 
+
+ async startDesktop(appId){
+  check(!this.closing,'AppDash 종료 중입니다.');check(!this.stoppingApps.has(appId),'이 앱은 전체 인스턴스 종료 중입니다.');
+  const app=get('apps',appId);check(app?.type==='desktop','데스크톱 앱만 실행할 수 있습니다.');check(!app.archived,'보관된 앱입니다.');
+  const existing=[...this.active.values()].find(a=>a.run.appId===appId&&a.run.purpose==='desktop');
+  if(!app.allowMultipleInstances&&existing)return {runId:existing.run.id,alreadyRunning:true};
+  if(!app.allowMultipleInstances&&this.desktopStarts.has(appId)){const run=await this.desktopStarts.get(appId);return {runId:run.id,alreadyRunning:true};}
+  const pending=this.start(appId);
+  if(!app.allowMultipleInstances)this.desktopStarts.set(appId,pending);
+  try{const run=await pending;return {runId:run.id,alreadyRunning:false};}
+  finally{if(this.desktopStarts.get(appId)===pending)this.desktopStarts.delete(appId);}
+ }
+ async stopDesktop(appId){
+  if(this.desktopStops.has(appId))return this.desktopStops.get(appId);
+  const owns=a=>a.run.appId===appId&&a.run.purpose==='desktop',pending=()=>[...this.locks].some(key=>key.startsWith(appId+':'));
+  check([...this.active.values()].some(owns)||pending(),'AppDash에서 시작한 데스크톱 인스턴스가 없습니다.');
+  this.stoppingApps.add(appId);
+  const stopping=(async()=>{while(pending())await new Promise(r=>setTimeout(r,20));await Promise.all([...this.active.values()].filter(owns).map(a=>this.stop(a.run.id)));})();
+  this.desktopStops.set(appId,stopping);
+  try{await stopping;}finally{this.desktopStops.delete(appId);this.stoppingApps.delete(appId);}
+ }
+
  async uiStatus(app,fresh=false){
+  if(app.type==='desktop'){
+   const owned=[...this.active.values()].filter(a=>a.run.appId===app.id&&a.run.purpose==='desktop'),pendingCount=[...this.locks].filter(key=>key.startsWith(app.id+':desktop')).length;
+   return {configured:true,canStart:true,status:this.stoppingApps.has(app.id)?'stopping':owned.some(a=>a.run.status==='running')?'running':owned[0]?.run.status||(pendingCount?'starting':'stopped'),pendingCount,managed:owned.length>0||pendingCount>0,runId:owned[0]?.run.id,instanceCount:owned.length,restartRequired:owned.some(a=>JSON.stringify(a.gatewaySnapshot)!==JSON.stringify(app.gateway))};
+  }
+
   const owned=[...this.active.values()].find(a=>a.run.appId===app.id&&a.run.purpose==='ui');
   const configured=app.type==='service';
   const canStart=app.type==='service';
@@ -62,7 +89,7 @@ export class Gateway {
  async ensureUi(appId,wait=true){
   check(!this.closing,'AppDash 종료 중입니다.');let pending=this.uiStarts.get(appId);
   if(!pending){
-   pending=(async()=>{const app=get('apps',appId);check(app,'앱이 없습니다.');check(!app.archived,'보관된 앱입니다.');check(app.type==='service','자동화 스크립트는 실행 패널에서 실행하세요.');check(app.gateway.openUrl||!wait,'앱 접속 URL을 앱 관리에서 설정하세요.');const status=await this.uiStatus(app,true);
+   pending=(async()=>{const app=get('apps',appId);check(app,'앱이 없습니다.');check(!app.archived,'보관된 앱입니다.');check(app.type==='service','웹 서비스·앱만 브라우저에서 열 수 있습니다.');check(app.gateway.openUrl||!wait,'앱 접속 URL을 앱 관리에서 설정하세요.');const status=await this.uiStatus(app,true);
     if(status.status==='running')return {url:status.url||app.gateway.openUrl,runId:status.runId,managed:status.managed};
     check(status.canStart,'앱 화면이 종료되어 있습니다. 앱 화면 시작 명령을 설정하세요.');check(JSON.stringify(get('apps',appId))===JSON.stringify(app),'준비 중 앱 설정이 변경되었습니다. 다시 열어 주세요.');
     const run=await this.start(appId,{},'manual',{purpose:'ui'});return {url:app.gateway.openUrl,runId:run.id,managed:true};

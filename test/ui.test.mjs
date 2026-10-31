@@ -183,9 +183,9 @@ test('script-only card confirmation shows inputs only when the app requests them
  `,context);
 });
 
-test('only two category labels exist and services have no AppDash scheduling controls',()=>{
+test('three category labels exist and services have no AppDash scheduling controls',()=>{
  const {context}=ui();vm.runInContext(`
-  assert.deepEqual(Object.keys(appTypes),['service','automation']);
+  assert.deepEqual(Object.keys(appTypes),['service','desktop','automation']);
   const app={...fixtureApp,type:'service',gateway:{openUrl:'http://127.0.0.1:4180/'}};
   const html=appForm(app);assert.equal((html.match(/role="tabpanel"/g)||[]).length,3);assert.ok(!html.includes('data-management-tab="schedules"'));
   const rendered=card(app);assert.ok(!rendered.includes('data-schedule='));assert.ok(!rendered.includes('data-quick-run='));
@@ -199,4 +199,30 @@ test('service editing preserves hidden timeout metadata instead of forcing a res
   const result=readApp({querySelector:selector=>({value:selector.includes('timeoutSeconds')?'30':'20'})});
   assert.equal(result.gateway.timeoutSeconds,30);assert.equal(result.gateway.readinessSeconds,20);
  `,context);
+});
+
+test('desktop cards start through the server without a dialog or browser tab',async()=>{
+ const {context}=ui();await vm.runInContext(`(async()=>{
+  state.apps=[{...fixtureApp,type:'desktop'}];let calls=[],opened=0,dialogs=0;
+  api=async(route,method)=>{calls.push([route,method]);return {runId:'desktop-run',alreadyRunning:false};};
+  refresh=async()=>{};toast=()=>{};modal=()=>{dialogs++;};globalThis.window={open:()=>opened++};
+  await useApp(fixtureApp.id);assert.equal(calls[0][0],'apps/'+fixtureApp.id+'/start-desktop');assert.equal(opened,0);assert.equal(dialogs,0);
+  const html=card(state.apps[0]);assert.ok(html.includes('데스크톱 앱'));assert.ok(html.includes('data-start-desktop'));assert.ok(!html.includes('data-schedule='));
+  state.uiStates={[fixtureApp.id]:{configured:true,canStart:true,status:'running',managed:true,instanceCount:2}};
+  const running=card(state.apps[0]);assert.ok(running.includes('2개 인스턴스'));assert.ok(running.includes('data-stop-desktop'));assert.ok(running.includes('미저장 작업'));
+ })()`,context);
+});
+
+test('desktop options hide web and automation fields and round-trip the instance flag',()=>{
+ const {context,source}=ui();vm.runInContext(`
+  const app={...fixtureApp,type:'desktop',allowMultipleInstances:true};
+  const html=appForm(app);assert.ok(html.includes('name="allowMultipleInstances" checked'));assert.ok(html.includes('data-desktop-only'));
+  assert.ok(html.includes('data-service-only hidden'));assert.ok(html.includes('data-script-only hidden'));
+  assert.ok(!html.includes('data-management-tab="schedules"'));assert.equal((html.match(/name="allowMultipleInstances"/g)||[]).length,1);
+  formData=()=>({name:'Desktop',type:'desktop',allowMultipleInstances:'on',version:'1',workingDirectory:'C:/Apps',executable:'node',args:'[]',stopExecutable:'',stopArgs:'[]',inputDefaults:'{}',retentionDays:'30',timeoutSeconds:'1',readinessSeconds:'20'});
+  const result=readApp({querySelector:()=>({value:'1'})});assert.equal(result.allowMultipleInstances,true);assert.equal(result.gateway.openUrl,'');assert.equal(result.gateway.healthUrl,'');
+  state.apps=[app];runDetails={appId:app.id,purpose:'desktop'};confirmRerun();
+ `,context);
+ assert.ok(source.includes("type:app.type==='desktop'?'desktop'"));
+ assert.match(fs.readFileSync('public/style.css','utf8'),/\[hidden\]\{display:none!important\}/);
 });

@@ -27,8 +27,8 @@ function migrateClassifications(){
  try{
   for(const app of apps){
    const current=classifyApp(app);
-   if(JSON.stringify(current)!==JSON.stringify(app)){put('versions',{appId:app.id,config:app,createdAt:new Date().toISOString(),note:'두 유형으로 정리하기 전 설정'});put('apps',current);}
-   if(current.type==='service')for(const schedule of list('schedules').filter(s=>s.appId===app.id&&s.enabled))put('schedules',{...schedule,enabled:false});
+   if(JSON.stringify(current)!==JSON.stringify(app)){put('versions',{appId:app.id,config:app,createdAt:new Date().toISOString(),note:'앱 유형·실행 정책 정리 전 설정'});put('apps',current);}
+   if(current.type!=='automation')for(const schedule of list('schedules').filter(s=>s.appId===app.id&&s.enabled))put('schedules',{...schedule,enabled:false});
   }
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error;}

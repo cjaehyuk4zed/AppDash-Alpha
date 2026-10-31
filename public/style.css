@@ -35,3 +35,8 @@
 .app-card:has(.card-more[open]){z-index:6}
 
 .app-card{display:flex;flex-direction:column}.card-use{flex:1}.card-controls{margin-top:auto;min-height:60px}.card-more{margin-bottom:0;border:0;background:transparent}
+
+/* Author display rules must never override hidden form fields. */
+[hidden]{display:none!important}
+
+@media(max-width:700px){.management-tabs{flex-wrap:wrap;gap:4px}.management-tabs button{white-space:nowrap;padding:8px 9px;font-size:12px}}

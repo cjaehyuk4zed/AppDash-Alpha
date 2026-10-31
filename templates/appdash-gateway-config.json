@@ -20,5 +20,6 @@
     "openUrl": "",
     "timeoutSeconds": 300,
     "readinessSeconds": 20
-  }
+  },
+  "allowMultipleInstances": false
 }

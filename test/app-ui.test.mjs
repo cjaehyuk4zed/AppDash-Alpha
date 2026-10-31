@@ -8,7 +8,7 @@ import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}
-test('two app categories, lifecycle and compatibility migration',async t=>{
+test('web/script lifecycle and legacy compatibility migration',async t=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'AppDash categories ')),port=await freePort(),base='http://127.0.0.1:'+port;
  let child,exited,session,agent,log='';
  async function request(route,method='GET',body){return new Promise((resolve,reject)=>{const q=http.request(base+'/api/'+route,{method,agent,headers:{'Content-Type':'application/json','X-AppDash-Session':session||''}},r=>{let data='';r.setEncoding('utf8');r.on('data',b=>data+=b);r.on('error',reject);r.on('end',()=>{try{resolve({status:r.statusCode,body:JSON.parse(data)});}catch(e){reject(e);}});});q.on('error',reject);q.end(body===undefined?undefined:JSON.stringify(body));});}
